@@ -1,0 +1,2 @@
+C:\Users\jyo11\OneDrive\User\プログラミング\DX-library\プロジェクト\connect4\x64\Release\connect4.exe
+C:\Users\jyo11\OneDrive\User\プログラミング\DX-library\プロジェクト\work\connect4\x64\Release\connect4.exe

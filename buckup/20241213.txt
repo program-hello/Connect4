@@ -1,0 +1,283 @@
+#define _CRT_SECURE_NO_WARNINGS
+#include "DxLib.h"
+#include "global.h"
+#include "prototype.h"
+
+
+// https://kage3.cocolog-nifty.com/blog/2014/03/post-c1b7.html  参考サイト（コンソール画面）
+
+//*******************************************************
+// デバッグ用のコンソールの初期処理(メインループ前に呼ぶ)
+//*******************************************************
+void initDebugConsole() {
+	// デバッグ用コンソール画面表示フラグが表示しない設定の場合、処理終了
+	//if (debugInfo.debugConsoleDisplayFlg == FALSE) {
+	//	return;
+	//}
+	//デバッグ用にコンソールを呼び出す
+	AllocConsole();
+	(void)freopen("CONOUT$", "w", stdout);
+	(void)freopen("CONIN$", "r", stdin);
+	// デバッグコンソールがアクティブウィンドウになるので
+	// ゲーム本体のウィンドウをアクティブにする
+	SetForegroundWindow(GetMainWindowHandle());
+}
+//*******************************************************
+// デバッグ用のコンソールのクリア処理
+//*******************************************************
+void clearDebugConsole() {
+	//// デバッグ用コンソール画面表示フラグが表示しない設定の場合、処理終了
+	//if (debugInfo.debugConsoleDisplayFlg == FALSE) {
+	//	return;
+	//}
+	system("cls");
+}
+//*******************************************************
+// デバッグ用のコンソールの終了処理(メインループ後に呼ぶ)
+//*******************************************************
+void endDebugConsole() {
+	//// デバッグ用コンソール画面表示フラグが表示しない設定の場合、処理終了
+	//if (debugInfo.debugConsoleDisplayFlg == FALSE) {
+	//	return;
+	//}
+	//コンソール解放
+	FreeConsole();
+}
+
+
+
+
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+{
+	//*******************************************
+	// 初期設定
+	//*******************************************
+	{
+		initDebugConsole();							// コンソールの表示
+		ChangeWindowMode(FALSE);						// TRUE : ウィンドウ  FALSE ; フルスクリーン
+		SetGraphMode(1980, 1080, 32);				// ウィンドウサイズ
+		SetWindowSizeChangeEnableFlag(TRUE);		// ウィンドウサイズの変更を許可するか否か
+		SetMainWindowText("Cnnect4");				// ウィンドウ名
+		SetFullScreenResolutionMode(DX_FSRESOLUTIONMODE_DESKTOP);		// フルスクリーンモード時の解像度モードを設定する
+		SetDrawScreen(DX_SCREEN_BACK);				// 裏画面に描画する
+		SetBackgroundColor(241, 237, 238);			// 画面の背景色を設定
+		if (DxLib_Init() == -1) return -1;			// エラーが起きたら直ちに終了
+		SetMouseDispFlag(TRUE);						// マウスを画面上に表示する
+	}
+
+
+	Handle_load();		// 各種ハンドルの読み込み
+	initialize();	// フィールドの初期化
+
+
+	// ゲームメインループ******************************************************************
+	while (ProcessMessage() != -1) {
+		ClearDrawScreen();
+		GetMousePoint(&mx, &my);    // マウス座標取得
+		DrawFormatString(0, 0, 0x000000, "x = %d , y = %d", mx, my);
+		
+		if (GetMouseInput() == 0) clickFlag = 0;	// クリックした状態で他の要素状にマウスが乗った時に連続して判定が行われるのを防ぐ
+	
+		draw_field();	// フィールドの描画
+		mouse_select();	// 各要素とマウスの座標判定
+		draw_color();	// 要素に色をつける
+
+
+		
+
+
+
+
+
+		//DrawString(0, 100, "ここだよ", 0x000000);
+
+
+		ScreenFlip();
+
+		if (CheckHitKey(KEY_INPUT_ESCAPE)) {
+			DrawString(400, 100, "終了", 0x000000);
+			WaitKey();				// キー入力待ち
+			endDebugConsole();		// コンソールの開放
+			DxLib_End();			// ＤＸライブラリ使用の終了処理
+			return 0;				// ソフトの終了 
+		}
+	}
+
+	DrawString(400, 100, "終了", 0x000000);
+	WaitKey();				// キー入力待ち
+	endDebugConsole();		// コンソールの開放
+	DxLib_End();			// ＤＸライブラリ使用の終了処理
+	return 0;				// ソフトの終了 
+}
+
+void Handle_load() {
+
+	// フォントハンドルをメモリに読み込む
+	FHandle[0] = CreateFontToHandle("Lucida Console", 30, 3);
+	FHandle[1] = CreateFontToHandle("Lucida Console", 60, 3);
+
+	// 色ハンドルをメモリに読み込む
+	CHandle[0] = GetColor(241, 237, 238);	// 背景色
+	CHandle[1] = GetColor(209, 204, 220);	// マウスが重なった要素の背景
+	CHandle[2] = GetColor(61, 84, 103);		// 各種文字の色
+	CHandle[3] = GetColor(219, 84, 67);		// プレイヤー選択済み
+	CHandle[4] = GetColor(72, 169, 166);	// ＣＯＭ選択済み
+}
+
+void initialize() {
+
+	// ２段目以降を -1 で初期化
+	for (int z = 1; z <= 3; z++) {
+		for (int x = 0; x < 4; x++) {
+			for (int y = 0; y < 4; y++) {
+				gameF[z][x][y] = -1;
+			}
+		}
+	}
+
+	// １段目を 0 で初期化
+	for (int x = 0; x < 4; x++) {
+		for (int y = 0; y < 4; y++) {
+			gameF[0][x][y] = 0;
+		}
+	}
+}
+
+void draw_field() {
+
+	// フィールドの描画（大きい平行四辺形）***********************************
+	for (int i = 0; i < 4; i++) {
+
+		// (i * plusY * 4 * 1.2f) は大きい平行四辺形を i段目に描画するためにy軸の値を調整する
+		DrawLineAA(fieldX1, fieldY1 - (i * plusY * 4 * 1.2f), fieldX2, fieldY2 - (i * plusY * 4 * 1.2f), CHandle[2]);
+		DrawLineAA(fieldX2, fieldY2 - (i * plusY * 4 * 1.2f), fieldX3, fieldY3 - (i * plusY * 4 * 1.2f), CHandle[2]);
+		DrawLineAA(fieldX3, fieldY3 - (i * plusY * 4 * 1.2f), fieldX4, fieldY4 - (i * plusY * 4 * 1.2f), CHandle[2]);
+		DrawLineAA(fieldX4, fieldY4 - (i * plusY * 4 * 1.2f), fieldX1, fieldY1 - (i * plusY * 4 * 1.2f), CHandle[2]);
+
+		// 大きい平行四辺形の網目の描画
+		for (int j = 1; j <= 3; j++) {
+			// ななめ
+			DrawLineAA(fieldX1 + (j * plusX), fieldY1 - (i * plusY * 4 * 1.2f), 
+					   fieldX4 + (j * plusX), fieldY4 - (i * plusY * 4 * 1.2f), CHandle[2]);
+
+			// 横
+			DrawLineAA(fieldX1 + (j * 40), fieldY1 - (j * plusY) - (i * plusY * 4 * 1.2f), 
+					   fieldX2 + (j * 40), fieldY1 - (j * plusY) - (i * plusY * 4 * 1.2f), CHandle[2]);
+		}
+	}
+}
+
+void mouse_select() {
+
+	for (int z = 0; z < 4; z++) {
+		for (int x = 0; x < 4; x++) {
+			for (int y = 0; y < 4; y++) {
+
+				// フィールドが 0 の要素のみ選択可能
+				if (gameF[z][x][y] == 0) {
+
+					// 外積を求める
+					cross1 = crossProduct(x1 + (x * plusX) + (y * 40), y1 - (z * plusY * 4 * 1.2f) - (y * plusY), x2 + (x * plusX) + (y * 40), y2 - (z * plusY * 4 * 1.2f) - (y * plusY), mx, my); // 下辺 (x1, y1) - (x2, y2) →
+					cross2 = crossProduct(x2 + (x * plusX) + (y * 40), y2 - (z * plusY * 4 * 1.2f) - (y * plusY), x3 + (x * plusX) + (y * 40), y3 - (z * plusY * 4 * 1.2f) - (y * plusY), mx, my); // 右辺 (x2, y2) - (x3, y3) ↗
+					cross3 = crossProduct(x3 + (x * plusX) + (y * 40), y3 - (z * plusY * 4 * 1.2f) - (y * plusY), x4 + (x * plusX) + (y * 40), y4 - (z * plusY * 4 * 1.2f) - (y * plusY), mx, my); // 上辺 (x3, y3) - (x4, y4) ←
+					cross4 = crossProduct(x4 + (x * plusX) + (y * 40), y4 - (z * plusY * 4 * 1.2f) - (y * plusY), x1 + (x * plusX) + (y * 40), y1 - (z * plusY * 4 * 1.2f) - (y * plusY), mx, my); // 左辺 (x4, y4) - (x1, y1) ↙
+
+					if ((cross1 >= 0 && cross2 >= 0 && cross3 >= 0 && cross4 >= 0) ||
+						(cross1 <= 0 && cross2 <= 0 && cross3 <= 0 && cross4 <= 0)) {
+
+						// 平行四辺形の内部にマウスがいるか判定
+						// すべてのクロス積が同じ符号なら、マウスは平行四辺形内にいる
+						if ((cross1 >= 0 && cross2 >= 0 && cross3 >= 0 && cross4 >= 0) ||
+							(cross1 <= 0 && cross2 <= 0 && cross3 <= 0 && cross4 <= 0)) {
+
+							// マウスが平行四辺形内にいる場合その座標に対応する要素に色をつける
+							// 三角形二つで平行四辺形を表現する
+							
+							// 三角形１　　②、③は同じ点
+							DrawTriangleAA((x1 + 6) + (x * plusX) + (y * 40), (y1 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点❶
+									       (x2 - 2) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右下の点②
+										   (x4 + 3) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[1], TRUE);	// 上の点③
+							// 三角形２	   ②、③は同じ点
+							DrawTriangleAA((x3 - 6) + (x * plusX) + (y * 40), (y3 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右上の点❸
+										   (x2 - 3) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点②
+										   (x4 + 2) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[1], TRUE);	// 左上の点③
+
+
+							/*  - (i * plusY * 4 * 1.2f) : i段目の処理
+							 *  + (j * plusX) : 基準の要素（一番左下）から右隣へ移動の処理  x軸
+							 *  + (k * 40)    : 基準の要素（一番左下）から上隣へ移動の処理  y軸*/
+
+
+							if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0 && clickFlag != 1) {
+
+								clickFlag = 1;
+								// プレイヤーの番でクリックされたら 111、
+								// ＣＯＭの番でクリックされたら 222 を gameF に代入
+								if (playerFlag == 1) gameF[z][x][y] = 111;
+								else gameF[z][x][y] = 222;
+								playerFlag = ~playerFlag;	// 手番を入れ替える
+
+								// 当該要素の一段上を選択可能にする
+								if (z + 1 < 4) gameF[z + 1][x][y] = 0;
+								
+								return;
+							}
+
+
+
+
+						}
+						//else {
+						//	DrawTriangleAA(x1 + 6, y1 - 2, x2 - 2, y2 - 2, x4 + 3, y4 + 3, CHandle[0], TRUE);
+						//	DrawTriangleAA(x3 - 5, y3 + 3, x2 - 2, y2 - 2, x4 + 3, y4 + 3, CHandle[0], TRUE);
+						//}
+
+					}
+				}
+			}
+		}
+	}
+}
+
+void draw_color() {
+
+	for (int z = 0; z < 4; z++) {
+		for (int x = 0; x < 4; x++) {
+			for (int y = 0; y < 4; y++) {
+				
+				// プレイヤーの陣地を色付け
+				if (gameF[z][x][y] == 111) {
+
+					// 三角形１　　②、③は同じ座標
+					DrawTriangleAA((x1 + 6) + (x * plusX) + (y * 40), (y1 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点❶
+								   (x2 - 2) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右下の点②
+							   	   (x4 + 3) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[3], TRUE);	// 上の点③
+					// 三角形２	   ②、③は同じ座標
+					DrawTriangleAA((x3 - 6) + (x * plusX) + (y * 40), (y3 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右上の点❸
+								   (x2 - 3) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点②
+								   (x4 + 2) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[3], TRUE);	// 上の点③
+				}
+
+				// ＣＯＭの陣地を色付け
+				if (gameF[z][x][y] == 222) {
+
+					// 三角形１　　②、③は同じ座標
+					DrawTriangleAA((x1 + 6) + (x * plusX) + (y * 40), (y1 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点❶
+								   (x2 - 2) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右下の点②
+								   (x4 + 3) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[4], TRUE);	// 上の点③
+					// 三角形２
+					DrawTriangleAA((x3 - 6) + (x * plusX) + (y * 40), (y3 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右上の点❸
+								   (x2 - 3) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点②
+								   (x4 + 2) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[4], TRUE);	// 上の点③
+				}
+			}
+		}
+	}
+	
+}
+
+float crossProduct(float x1, float y1, float x2, float y2, int px, int py) {
+	return (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1);
+}
+

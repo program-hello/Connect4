@@ -1,0 +1,1633 @@
+﻿#define _CRT_SECURE_NO_WARNINGS
+
+#include "DxLib.h"
+#include "define.h"
+#include "global.h"
+#include "prototype.h"
+
+
+
+// https://kage3.cocolog-nifty.com/blog/2014/03/post-c1b7.html  参考サイト（コンソール画面）
+
+//*******************************************************
+// デバッグ用のコンソールの初期処理(メインループ前に呼ぶ)
+//*******************************************************
+void initDebugConsole() {
+	// デバッグ用コンソール画面表示フラグが表示しない設定の場合、処理終了
+	//if (debugInfo.debugConsoleDisplayFlg == FALSE) {
+	//	return;
+	//}
+	//デバッグ用にコンソールを呼び出す
+	AllocConsole();
+	(void)freopen("CONOUT$", "w", stdout);
+	(void)freopen("CONIN$", "r", stdin);
+	// デバッグコンソールがアクティブウィンドウになるので
+	// ゲーム本体のウィンドウをアクティブにする
+	SetForegroundWindow(GetMainWindowHandle());
+}
+//*******************************************************
+// デバッグ用のコンソールのクリア処理
+//*******************************************************
+void clearDebugConsole() {
+	//// デバッグ用コンソール画面表示フラグが表示しない設定の場合、処理終了
+	//if (debugInfo.debugConsoleDisplayFlg == FALSE) {
+	//	return;
+	//}
+	system("cls");
+}
+//*******************************************************
+// デバッグ用のコンソールの終了処理(メインループ後に呼ぶ)
+//*******************************************************
+void endDebugConsole() {
+	//// デバッグ用コンソール画面表示フラグが表示しない設定の場合、処理終了
+	//if (debugInfo.debugConsoleDisplayFlg == FALSE) {
+	//	return;
+	//}
+	//コンソール解放
+	FreeConsole();
+}
+
+
+
+
+
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+{
+	//*******************************************
+	// 初期設定
+	//*******************************************
+	{
+		//initDebugConsole();							// コンソールの表示
+		ChangeWindowMode(TRUE);						// TRUE : ウィンドウ  FALSE ; フルスクリーン
+		SetGraphMode(1980, 1080, 32);				// ウィンドウサイズ
+		SetWindowSizeChangeEnableFlag(TRUE);		// ウィンドウサイズの変更を許可するか否か
+		SetMainWindowText("Cnnect4");				// ウィンドウ名
+		SetFullScreenResolutionMode(DX_FSRESOLUTIONMODE_DESKTOP);		// フルスクリーンモード時の解像度モードを設定する
+		
+		SetWindowSizeExtendRate(0.8);// ウィンドウサイズを0.5倍に縮小（＝320x240）
+
+		SetBackgroundColor(241, 237, 238);			// 画面の背景色を設定
+		if (DxLib_Init() == -1) return -1;			// エラーが起きたら直ちに終了
+		SetDrawScreen(DX_SCREEN_BACK);				// 裏画面に描画する
+		SetMouseDispFlag(TRUE);						// マウスを画面上に表示する
+	}
+
+
+	Handle_load();	// 各種ハンドルの読み込み
+
+
+	// タイトル画面
+TITLE:
+	initialize();	// フィールドの初期化
+	// １：プレイヤー先攻　２：プレイヤー後手
+	playerFlag = 1;
+	sengo = 1;			
+	hintoFlag = 0;
+	mode = 1;			
+	timesCnt = 0;
+	cntCant = 1;
+	depthNow = 2;
+	randomFreq = 2;
+
+	title();	// タイトル画面
+
+
+	// ゲームメインループ******************************************************************
+	while (ProcessMessage() != -1) {
+
+		if (GetMouseInput() == 0) clickFlag = 0;	// クリックした状態で他の要素状にマウスが乗った時に連続して判定が行われるのを防ぐ
+		ClearDrawScreen();
+		draw_color(1);		// 現在選択可能なマスに薄く色を付ける
+		draw_field();	// フィールドの描画
+		if (reset_debug() == 1) goto TITLE;
+
+
+		// mode = 0 : プレイヤー対プレイヤー　　mode = 1 : プレイヤー対ＣＯＭ
+		if (mode == 0) {
+			if (playerFlag == 1) player_select();	// 各要素とマウスの座標判定 + クリック時に gameF[][][] に 111 を格納（プレイヤーの選択）
+			else player_select();
+		}
+		else if (mode == 1) {
+			if (playerFlag == 1) player_select();	// 各要素とマウスの座標判定 + クリック時に gameF[][][] に 111 を格納（プレイヤーの選択）
+			else com_select();
+		}
+		
+
+		// ４段目にあるプレイヤーとＣＯＭの駒を合わせた数を数える(can't)
+		{		
+				cant = 0;
+				for (int y = 0; y < 4; y++) {
+					for (int x = 0; x < 4; x++) {
+						if (gameF[3][y][x] == 111 || gameF[3][y][x] == 222) cant++;
+					}
+				}
+				// レベル６の時だけ探索を深くする
+				if (randomFreq == 1) {
+					// ４段目に駒が置かれるということは候補手が１つ減ることになるので、それに合わせて探索を深くする
+					if (cant == 6 || cant == 7) depthNow = MAXDEPTH + 1;
+					else if (cant == 8 || cant == 9) depthNow = MAXDEPTH + 2;
+					else if (cant == 10 || cant == 11) depthNow = MAXDEPTH + 3;
+					else if (cant >= 12) depthNow = MAXDEPTH + 5;
+				}
+		}
+
+		GetMousePoint(&mx, &my);    // マウス座標取得
+
+		draw_color(0);	// 要素に色をつける
+		ScreenFlip();
+
+
+
+		if (checkWin(111)) {	// プレイヤー勝利をチェック
+			flash_bingo(3);
+			ending(1);
+			goto TITLE;
+		}
+		if (checkWin(222)) {	// ＣＯＭ勝利をチェック
+			flash_bingo(4);
+			ending(2);
+			goto TITLE;
+		}
+		if (timesCnt == 64) {	// 盤面はマックスで６４マス
+			ending(3);			// 引き分け
+			goto TITLE;
+		}
+
+
+
+		if (CheckHitKey(KEY_INPUT_ESCAPE)) {
+			DrawString(400, 100, "終了", 0x000000);
+			WaitKey();				// キー入力待ち
+			endDebugConsole();		// コンソールの開放
+			DxLib_End();			// ＤＸライブラリ使用の終了処理
+			return 0;				// ソフトの終了 
+		}
+	}
+
+	DrawString(400, 100, "終了", 0x000000);
+	WaitKey();				// キー入力待ち
+	endDebugConsole();		// コンソールの開放
+	DxLib_End();			// ＤＸライブラリ使用の終了処理
+	return 0;				// ソフトの終了 
+}
+
+void title() {
+
+	while (ProcessMessage() != -1) {
+
+		if (GetMouseInput() == 0) clickFlag = 0;
+		GetMousePoint(&mx, &my);
+		ClearDrawScreen();
+
+		if (clickFlag == 0) {	// クリックした状態で他の要素状にマウスが乗った時に連続して判定が行われるのを防ぐ
+
+
+			// 選択肢とマウスの重なり
+			{
+				// ★
+				if ((mx > 20 && mx < 320) && (my > 280 && my < 555)) {
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						depthNow = 2;
+						randomFreq = 2;
+						clickFlag = 1;
+					}
+				}
+				// ★★
+				if ((mx > 340 && mx < 650) && (my > 280 && my < 555)) {
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						depthNow = 2;
+						randomFreq = 3;
+						clickFlag = 1;
+					}
+				}
+				// ★★★
+				if ((mx > 670 && mx < 980) && (my > 280 && my < 555)) {
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						depthNow = 3;
+						randomFreq = 4;
+						clickFlag = 1;
+					}
+				}
+				// ★★★★
+				if ((mx > 20 && mx < 320) && (my > 575 && my < 850)) {
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						depthNow = 4;
+						randomFreq = 5;
+						clickFlag = 1;
+					}
+				}
+				// ★★★★★
+				if ((mx > 340 && mx < 650) && (my > 575 && my < 850)) {
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						depthNow = 5;
+						randomFreq = 6;
+						clickFlag = 1;
+					}
+				}
+				// ★★★★★★
+				if ((mx > 670 && mx < 980) && (my > 575 && my < 850)) {
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						depthNow = 7;
+						randomFreq = 1;
+						clickFlag = 1;
+					}
+				}
+
+				// 先手
+				if ((mx > 990 && mx < 1980) && (my > 280 && my < 555)) {
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						playerFlag = 1;
+						clickFlag = 1;
+						sengo = 1;
+					}
+				}
+				// 後手
+				if ((mx > 990 && mx < 1980) && (my > 575 && my < 850)) {
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						playerFlag = 2;
+						clickFlag = 1;
+						sengo = 2;
+					}
+				}
+
+				// プレイヤー対ＣＯＭ
+				if ((mx > 20 && mx < 480) && (my > 870 && my < 1060)) {
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						mode = 1;
+						clickFlag = 1;
+					}
+				}
+				// プレイヤー対プレイヤー
+				if ((mx > 495 && mx < 980) && (my > 870 && my < 1060)) {
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						mode = 0;
+						clickFlag = 1;
+					}
+				}
+
+				// ＳＴＡＲＴボタン
+				if ((mx > 1000 && mx < 1980) && (my > 850 && my < 1080)) {
+					DrawBox(1000, 850, 1980, 1080, CHandle[1], TRUE);
+					if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+						WaitTimer(300);
+						return;
+					}
+				}
+
+			}
+		}
+
+		// 選択している要素の背景に色をつける
+		// レベル
+		if(depthNow == 2 && randomFreq == 2) DrawBox(20, 280, 320, 555, CHandle[6], TRUE);
+		else if(depthNow == 2) DrawBox(340, 280, 650, 555, CHandle[6], TRUE);
+		else if(depthNow == 3) DrawBox(670, 280, 980, 555, CHandle[6], TRUE);
+		else if(depthNow == 4) DrawBox(20, 575, 320, 850, CHandle[6], TRUE);
+		else if(depthNow == 5) DrawBox(340, 575, 650, 850, CHandle[6], TRUE);
+		else if(depthNow == 7) DrawBox(670, 575, 980, 850, CHandle[6], TRUE);
+
+		// 先手後手
+		if(playerFlag == 1) DrawBox(990, 280, 1980, 555, CHandle[6], TRUE);
+		else if(playerFlag == 2) DrawBox(990, 575, 1980, 850, CHandle[6], TRUE);
+
+		// モード
+		if(mode == 1) DrawBox(20, 870, 485, 1060, CHandle[6], TRUE);
+		else if(mode == 0) DrawBox(495, 870, 980, 1060, CHandle[6], TRUE);
+
+
+		// 枠及び文字の描画
+		{
+			DrawStringToHandle(465, 70, "立体４目ならべ", CHandle[2], FHandle[2]);
+			DrawBox(0, 260, 1980, 280, CHandle[2], TRUE);		// 上
+			DrawBox(980, 260, 1000, 1080, CHandle[2], TRUE);	// 真ん中縦
+			DrawBox(0, 850, 1980, 870, CHandle[2], TRUE);		// 下
+			DrawBox(0, 280, 20, 1080, CHandle[2], TRUE);		// 左縦
+			DrawBox(1960, 280, 1980, 1080, CHandle[2], TRUE);	// 右縦
+			DrawBox(0, 555, 1980, 575, CHandle[2], TRUE);		// 真ん中横
+			DrawBox(0, 1060, 1980, 1080, CHandle[2], TRUE);		// 一番下
+			DrawBox(485, 870, 505, 1080, CHandle[2], TRUE);		// mode 真ん中縦
+
+			DrawBox(320, 280, 340, 850, CHandle[2], TRUE);		// 難易度　左縦
+			DrawBox(650, 280, 670, 850, CHandle[2], TRUE);		// 難易度　右縦
+
+			DrawStringToHandle(1360, 370, "先手", CHandle[2], FHandle[3]);
+			DrawStringToHandle(1360, 665, "後手", CHandle[2], FHandle[3]);
+			DrawStringToHandle(1220, 925, "ＳＴＡＲＴ", CHandle[2], FHandle[3]);
+			DrawStringToHandle(75, 940, "player vs com", CHandle[2], FHandle[4]);
+			DrawStringToHandle(535, 940, "player vs player", CHandle[2], FHandle[4]);
+			DrawStringToHandle(120, 370, "★", CHandle[2], FHandle[3]);
+			DrawStringToHandle(395, 370, "★★", CHandle[2], FHandle[3]);
+			DrawStringToHandle(675, 370, "★★★", CHandle[2], FHandle[3]);
+			DrawStringToHandle(70, 615, "★★\n★★", CHandle[2], FHandle[3]);
+			DrawStringToHandle(395, 615, "★★", CHandle[2], FHandle[3]);
+			DrawStringToHandle(345, 718, "★★★", CHandle[2], FHandle[3]);
+			DrawStringToHandle(675, 615, "★★★\n★★★", CHandle[2], FHandle[3]);
+		}
+
+
+
+		ScreenFlip();
+
+
+		if (CheckHitKey(KEY_INPUT_ESCAPE)) {
+			DrawString(400, 30, "終了", 0x000000);
+			WaitKey();				// キー入力待ち
+			endDebugConsole();		// コンソールの開放
+			DxLib_End();			// ＤＸライブラリ使用の終了処理
+			return;				// ソフトの終了 
+		}
+	}
+}
+
+void Handle_load() {
+
+	// フォントハンドルをメモリに読み込む
+	FHandle[0] = CreateFontToHandle("Lucida Console", 30, 3, DX_FONTTYPE_ANTIALIASING);
+	FHandle[1] = CreateFontToHandle("Lucida Console", 200, 3, DX_FONTTYPE_ANTIALIASING);
+	FHandle[2] = CreateFontToHandle("UD デジタル 教科書体 NP-B", 150, 3, DX_FONTTYPE_ANTIALIASING);
+	FHandle[3] = CreateFontToHandle("UD デジタル 教科書体 NP-B", 100, 3, DX_FONTTYPE_ANTIALIASING);
+	FHandle[4] = CreateFontToHandle("UD デジタル 教科書体 NP-B", 50, 3, DX_FONTTYPE_ANTIALIASING);
+
+	// 色ハンドルをメモリに読み込む
+	CHandle[0] = GetColor(241, 237, 238);	// 背景色
+	CHandle[1] = GetColor(209, 204, 220);	// マウスが重なった要素の背景
+	CHandle[2] = GetColor(61, 84, 103);		// 各種文字の色
+	CHandle[3] = GetColor(219, 84, 67);		// プレイヤー選択済み
+	CHandle[4] = GetColor(72, 169, 166);	// ＣＯＭ選択済み
+	CHandle[5] = GetColor(225, 225, 225);	// 選択可能なマス
+	CHandle[6] = GetColor(255, 215, 0);		// タイトル画面の選択済み
+	CHandle[7] = GetColor(255, 241, 171);		// ヒント座標
+
+	GHandle[0] = LoadGraph("image/reset.png");
+	GHandle[1] = LoadGraph("image/menu.png");
+	GHandle[2] = LoadGraph("image/hinto.png");
+}
+
+void initialize() {
+
+	system("cls");	// コンソールを初期化
+
+	// ２段目以降を -1 で初期化
+	for (int z = 1; z < 4; z++) {
+		for (int x = 0; x < 4; x++) {
+			for (int y = 0; y < 4; y++) {
+				gameF[z][x][y] = -1;
+			}
+		}
+	}
+
+	// １段目を 0 で初期化
+	for (int x = 0; x < 4; x++) {
+		for (int y = 0; y < 4; y++) {
+			gameF[0][x][y] = 0;
+		}
+	}
+}
+
+void player_select() {
+
+	
+	
+	if (mode == 1) {
+		DrawStringToHandle(320, 370, "ＰＬＡＹＥＲ", CHandle[3], FHandle[4]);
+		if (sengo == 1) DrawStringToHandle(420, 450, "先行", CHandle[3], FHandle[4]);
+		else if (sengo == 2) DrawStringToHandle(420, 450, "後攻", CHandle[3], FHandle[4]);
+	}
+	else if (mode == 0) {
+		if (playerFlag == 1) {
+			DrawStringToHandle(320, 370, "ＰＬＡＹＥＲ", CHandle[3], FHandle[4]);
+			if (sengo == 1) DrawStringToHandle(420, 450, "先行", CHandle[3], FHandle[4]);
+			else if (sengo == 2) DrawStringToHandle(420, 450, "後攻", CHandle[3], FHandle[4]);
+		}
+		else if (playerFlag == 2) {
+			DrawStringToHandle(320, 370, "ＰＬＡＹＥＲ", CHandle[4], FHandle[4]);
+			if (sengo == 2) DrawStringToHandle(420, 450, "先行", CHandle[4], FHandle[4]);
+			else if (sengo == 1) DrawStringToHandle(420, 450, "後攻", CHandle[4], FHandle[4]);
+		}
+	}
+
+
+	for (int z = 0; z < 4; z++) {
+		for (int x = 0; x < 4; x++) {
+			for (int y = 0; y < 4; y++) {
+
+				// フィールドが 0 の要素のみ選択可能
+				if (gameF[z][x][y] == 0) {
+
+					// 外積を求める
+					cross1 = crossProduct(x1 + (x * plusX) + (y * 40), y1 - (z * plusY * 4 * 1.2f) - (y * plusY), x2 + (x * plusX) + (y * 40), y2 - (z * plusY * 4 * 1.2f) - (y * plusY), mx, my); // 下辺 (x1, y1) - (x2, y2) →
+					cross2 = crossProduct(x2 + (x * plusX) + (y * 40), y2 - (z * plusY * 4 * 1.2f) - (y * plusY), x3 + (x * plusX) + (y * 40), y3 - (z * plusY * 4 * 1.2f) - (y * plusY), mx, my); // 右辺 (x2, y2) - (x3, y3) ↗
+					cross3 = crossProduct(x3 + (x * plusX) + (y * 40), y3 - (z * plusY * 4 * 1.2f) - (y * plusY), x4 + (x * plusX) + (y * 40), y4 - (z * plusY * 4 * 1.2f) - (y * plusY), mx, my); // 上辺 (x3, y3) - (x4, y4) ←
+					cross4 = crossProduct(x4 + (x * plusX) + (y * 40), y4 - (z * plusY * 4 * 1.2f) - (y * plusY), x1 + (x * plusX) + (y * 40), y1 - (z * plusY * 4 * 1.2f) - (y * plusY), mx, my); // 左辺 (x4, y4) - (x1, y1) ↙
+
+					if ((cross1 >= 0 && cross2 >= 0 && cross3 >= 0 && cross4 >= 0) ||
+						(cross1 <= 0 && cross2 <= 0 && cross3 <= 0 && cross4 <= 0)) {
+
+						// 平行四辺形の内部にマウスがいるか判定
+						// すべてのクロス積が同じ符号なら、マウスは平行四辺形内にいる
+						if ((cross1 >= 0 && cross2 >= 0 && cross3 >= 0 && cross4 >= 0) ||
+							(cross1 <= 0 && cross2 <= 0 && cross3 <= 0 && cross4 <= 0)) {
+
+							// マウスが平行四辺形内にいる場合その座標に対応する要素に色をつける
+							// 三角形二つで平行四辺形を表現する
+
+							// 三角形１　　②、③は同じ点
+							DrawTriangleAA((x1 + 6) + (x * plusX) + (y * 40), (y1 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点❶
+								(x2 - 2) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右下の点②
+								(x4 + 3) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[1], TRUE);	// 上の点③
+							// 三角形２	   ②、③は同じ点
+							DrawTriangleAA((x3 - 6) + (x * plusX) + (y * 40), (y3 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右上の点❸
+								(x2 - 3) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点②
+								(x4 + 2) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[1], TRUE);	// 左上の点③
+
+
+							/*  - (i * plusY * 4 * 1.2f) : i段目の処理
+							 *  + (j * plusX) : 基準の要素（一番左下）から右隣へ移動の処理  x軸
+							 *  + (k * 40)    : 基準の要素（一番左下）から上隣へ移動の処理  y軸*/
+
+
+
+							if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0 && clickFlag != 1) {
+
+								hintoFlag = 0;	// ヒントを消すためにフラグを下げる
+								clickFlag = 1;
+								// プレイヤーの番でクリックされたら 111、
+								// ＣＯＭの番でクリックされたら 222 を gameF に代入
+								if (playerFlag == 1) gameF[z][x][y] = 111;
+								else gameF[z][x][y] = 222;
+								playerFlag = playerFlag % 2 + 1;	// 手番を入れ替える
+								timesCnt++;	// 何手目かカウントする
+
+								// 当該要素の一段上の要素を選択可能にする
+								if (z < 3) gameF[z + 1][x][y] = 0;
+								draw_color(1);
+
+								return;
+							}
+						}
+
+					}
+				}
+			}
+		}
+	}
+}
+
+void draw_field() {
+
+	// フィールドの描画（大きい平行四辺形）***********************************
+	for (int i = 0; i < 4; i++) {
+
+		// (i * plusY * 4 * 1.2f) は大きい平行四辺形を i段目に描画するためにy軸の値を調整する
+		DrawLineAA(fieldX1, fieldY1 - (i * plusY * 4 * 1.2f), fieldX2, fieldY2 - (i * plusY * 4 * 1.2f), CHandle[2]);
+		DrawLineAA(fieldX2, fieldY2 - (i * plusY * 4 * 1.2f), fieldX3, fieldY3 - (i * plusY * 4 * 1.2f), CHandle[2]);
+		DrawLineAA(fieldX3, fieldY3 - (i * plusY * 4 * 1.2f), fieldX4, fieldY4 - (i * plusY * 4 * 1.2f), CHandle[2]);
+		DrawLineAA(fieldX4, fieldY4 - (i * plusY * 4 * 1.2f), fieldX1, fieldY1 - (i * plusY * 4 * 1.2f), CHandle[2]);
+
+		// 大きい平行四辺形の網目の描画
+		for (int j = 1; j <= 3; j++) {
+			// ななめ
+			DrawLineAA(fieldX1 + (j * plusX), fieldY1 - (i * plusY * 4 * 1.2f), 
+					   fieldX4 + (j * plusX), fieldY4 - (i * plusY * 4 * 1.2f), CHandle[2]);
+
+			// 横
+			DrawLineAA(fieldX1 + (j * 40), fieldY1 - (j * plusY) - (i * plusY * 4 * 1.2f), 
+					   fieldX2 + (j * 40), fieldY1 - (j * plusY) - (i * plusY * 4 * 1.2f), CHandle[2]);
+		}
+	}
+}
+
+void draw_color(int index) {
+
+	for (int z = 0; z < 4; z++) {
+		for (int x = 0; x < 4; x++) {
+			for (int y = 0; y < 4; y++) {
+
+				// 選択可能なマスに色を付ける *********************************************:
+				{
+					if (index == 1 && gameF[z][x][y] == 0) {
+						// 三角形１　　②、③は同じ座標
+						DrawTriangleAA((x1 + 6) + (x * plusX) + (y * 40), (y1 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点❶
+							(x2 - 2) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右下の点②
+							(x4 + 3) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[5], TRUE);	// 上の点③
+						// 三角形２
+						DrawTriangleAA((x3 - 6) + (x * plusX) + (y * 40), (y3 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右上の点❸
+							(x2 - 3) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点②
+							(x4 + 2) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[5], TRUE);	// 上の点③
+					}
+				}
+				
+				// プレイヤーの陣地を色付け（基準点からの相対的な位置を使う）
+				if (gameF[z][x][y] == 111) {
+
+					// 三角形１　　②、③は同じ座標
+					DrawTriangleAA((x1 + 6) + (x * plusX) + (y * 40), (y1 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点❶
+								   (x2 - 2) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右下の点②
+							   	   (x4 + 3) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[3], TRUE);	// 上の点③
+					// 三角形２	   ②、③は同じ座標
+					DrawTriangleAA((x3 - 6) + (x * plusX) + (y * 40), (y3 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右上の点❸
+								   (x2 - 3) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点②
+								   (x4 + 2) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[3], TRUE);	// 上の点③
+				}
+
+				// ＣＯＭの陣地を色付け（基準点からの相対的な位置を使う）
+				if (gameF[z][x][y] == 222) {
+
+					// 三角形１　　②、③は同じ座標
+					DrawTriangleAA((x1 + 6) + (x * plusX) + (y * 40), (y1 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点❶
+								   (x2 - 2) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右下の点②
+								   (x4 + 3) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[4], TRUE);	// 上の点③
+					// 三角形２
+					DrawTriangleAA((x3 - 6) + (x * plusX) + (y * 40), (y3 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 右上の点❸
+								   (x2 - 3) + (x * plusX) + (y * 40), (y2 - 2) - (z * plusY * 4 * 1.2f) - (y * plusY),	// 左下の点②
+								   (x4 + 2) + (x * plusX) + (y * 40), (y4 + 3) - (z * plusY * 4 * 1.2f) - (y * plusY), CHandle[4], TRUE);	// 上の点③
+				}
+
+				// ヒントの座標に色を付ける
+				if (hintoFlag == 3) {
+					// 三角形１　　②、③は同じ座標
+					DrawTriangleAA((x1 + 6) + (bestY * plusX) + (bestX * 40), (y1 - 2) - (bestZ * plusY * 4 * 1.2f) - (bestX * plusY),	// 左下の点❶
+						(x2 - 2) + (bestY * plusX) + (bestX * 40), (y2 - 2) - (bestZ * plusY * 4 * 1.2f) - (bestX * plusY),	// 右下の点②
+						(x4 + 3) + (bestY * plusX) + (bestX * 40), (y4 + 3) - (bestZ * plusY * 4 * 1.2f) - (bestX * plusY), CHandle[6], TRUE);	// 上の点③
+					// 三角形２
+					DrawTriangleAA((x3 - 6) + (bestY * plusX) + (bestX * 40), (y3 + 3) - (bestZ * plusY * 4 * 1.2f) - (bestX * plusY),	// 右上の点❸
+						(x2 - 3) + (bestY * plusX) + (bestX * 40), (y2 - 2) - (bestZ * plusY * 4 * 1.2f) - (bestX * plusY),	// 左下の点②
+						(x4 + 2) + (bestY * plusX) + (bestX * 40), (y4 + 3) - (bestZ * plusY * 4 * 1.2f) - (bestX * plusY), CHandle[6], TRUE);	// 上の点③
+				}
+				if (hintoFlag == 1 || hintoFlag == 2) {
+					// 三角形１　　②、③は同じ座標
+					DrawTriangleAA((x1 + 6) + ((hintoY - 1) * plusX) + ((hintoX - 1) * 40), (y1 - 2) - ((hintoZ - 1) * plusY * 4 * 1.2f) - ((hintoX - 1) * plusY),	// 左下の点❶
+						(x2 - 2) + ((hintoY - 1) * plusX) + ((hintoX - 1) * 40), (y2 - 2) - ((hintoZ - 1) * plusY * 4 * 1.2f) - ((hintoX - 1) * plusY),	// 右下の点②
+						(x4 + 3) + ((hintoY - 1) * plusX) + ((hintoX - 1) * 40), (y4 + 3) - ((hintoZ - 1) * plusY * 4 * 1.2f) - ((hintoX - 1) * plusY), CHandle[6], TRUE);	// 上の点③
+					 // 三角形２
+					DrawTriangleAA((x3 - 6) + ((hintoY - 1) * plusX) + ((hintoX - 1) * 40), (y3 + 3) - ((hintoZ - 1) * plusY * 4 * 1.2f) - ((hintoX - 1) * plusY),	// 右上の点❸
+						(x2 - 3) + ((hintoY - 1) * plusX) + ((hintoX - 1) * 40), (y2 - 2) - ((hintoZ - 1) * plusY * 4 * 1.2f) - ((hintoX - 1) * plusY),	// 左下の点②
+						(x4 + 2) + ((hintoY - 1) * plusX) + ((hintoX - 1) * 40), (y4 + 3) - ((hintoZ - 1) * plusY * 4 * 1.2f) - ((hintoX - 1) * plusY), CHandle[6], TRUE);	// 上の点③
+				}
+			}
+		}
+	}
+	
+}
+
+void flash_bingo(int player) {
+
+	int cntFrame = 0;
+
+	while (cntFrame < 500) {
+
+		cntFrame += 2;
+
+		for (int i = 0; i < 4; i++) {
+			if ((cntFrame / 50) % 2 == 1) {
+				// 三角形１　　②、③は同じ座標
+				DrawTriangleAA((x1 + 6) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y1 - 2) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY),	// 左下の点❶
+					(x2 - 2) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y2 - 2) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY),	// 右下の点②
+					(x4 + 3) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y4 + 3) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY), CHandle[0], TRUE);	// 上の点③
+				// 三角形２	   ②、③は同じ座標
+				DrawTriangleAA((x3 - 6) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y3 + 3) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY),	// 右上の点❸
+					(x2 - 3) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y2 - 2) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY),	// 左下の点②
+					(x4 + 2) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y4 + 3) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY), CHandle[0], TRUE);	// 上の点③
+
+			}
+			else {
+				// 三角形１　　②、③は同じ座標
+				DrawTriangleAA((x1 + 6) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y1 - 2) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY),	// 左下の点❶
+					(x2 - 2) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y2 - 2) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY),	// 右下の点②
+					(x4 + 3) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y4 + 3) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY), CHandle[player], TRUE);	// 上の点③
+				// 三角形２	   ②、③は同じ座標
+				DrawTriangleAA((x3 - 6) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y3 + 3) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY),	// 右上の点❸
+					(x2 - 3) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y2 - 2) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY),	// 左下の点②
+					(x4 + 2) + (bingoX[i] * plusX) + (bingoY[i] * 40), (y4 + 3) - (bingoZ[i] * plusY * 4 * 1.2f) - (bingoY[i] * plusY), CHandle[player], TRUE);	// 上の点③
+			}
+		}
+		ScreenFlip();
+	}
+}
+
+int  checkDirection(int x, int y, int z, int dx, int dy, int dz, int player) {
+	// dx , dy , dz は進む方向を指定するための変数  　１：増やす　-１：減らす
+
+	int count = 0;	// 該当座標が含まれるラインに 引数(player) の駒がいくつあるかをカウント
+	PreachFlag = 0;		// checkReach() で使うリーチ完成のための最後の座標に駒が置けるか置けないかのフラグ
+	PreachX = 0, PreachY = 0, PreachZ = 0;	// 決勝点の座標
+
+	// 各軸を dx , dy にそって一つずつ進めていく
+	for (int i = 0; i < 4; i++) {
+		int nx = x + i * dx;
+		int ny = y + i * dy;
+		int nz = z + i * dz;
+
+		// ボード外に出たら無効
+		if ((nx < 0 || nx >= 4) || (ny < 0 || ny >= 4) || (nz < 0 || nz >= 4))
+			return 0;
+
+		if (gameF[nz][ny][nx] == player) {
+			count++;
+		}
+		if (gameF[nz][ny][nx] == 0) {	// ビンゴを完成させる最後の座標が選択可能かを判定
+			PreachX = nx;
+			PreachY = ny;
+			PreachZ = nz;
+			PreachFlag = 1;
+		}
+
+
+		// checkWin() で使う
+		// ビンゴ達成列の座標を格納する	 bingoX = ny , bingoY = nx としているのは flash_bingo() の兼ね合いで仕方なく
+		bingoX[i] = ny;
+		bingoY[i] = nx;
+		bingoZ[i] = nz;
+	}
+
+	return count;  // 引数(player) の駒がライン上に何個あったかを返す
+}
+
+bool checkWin(int player) {
+	// ボード全体をスキャン
+	for (int z = 0; z < 4; z++) {
+		for (int y = 0; y < 4; y++) {
+			for (int x = 0; x < 4; x++) {
+				// 各方向に対してチェック
+				if (gameF[z][y][x] == player) {
+
+					// 平面 *******************************************************************
+					// 横方向 (dx=1, dy=0, dz=0)
+					if (x == 0) {
+						if (checkDirection(x, y, z, 1, 0, 0, player) == 4) return true;
+					}
+					// 縦方向 (dx=0, dy=1, dz=0)
+					if (y == 0) {
+						if (checkDirection(x, y, z, 0, 1, 0, player) == 4) return true;
+					}
+					// z軸方向 (dx=0, dy=0, dz=1)
+					if (z == 0) {
+						if (checkDirection(x, y, z, 0, 0, 1, player) == 4) return true;
+					}
+
+					// 斜め方向 1 左下から右上(dx=1, dy=1, dz=0)
+					if (x == 0 && y == 0) {
+						if (checkDirection(x, y, z, 1, 1, 0, player) == 4) return true;
+					}
+					// 斜め方向 2 左上から右下(dx=1, dy=-1, dz=0)
+					if (x == 0 && y == 3) {
+						if (checkDirection(x, y, z, 1, -1, 0, player) == 4) return true;
+					}
+
+
+					// 立体斜め*****************************************************************			 
+					// 立体斜め方向 1 (dx=1, dy=0, dz=1)
+					if (x == 0 && z == 0) {
+						if (checkDirection(x, y, z, 1, 0, 1, player) == 4) return true;
+					}
+					// 立体斜め方向 2 (dx=1, dy=0, dz=-1)
+					if (x == 0 && z == 3) {
+						if (checkDirection(x, y, z, 1, 0, -1, player) == 4) return true;
+					}
+					// 立体斜め方向 3 (dx=0, dy=1, dz=1)
+					if (y == 0 && z == 0) {
+						if (checkDirection(x, y, z, 0, 1, 1, player) == 4) return true;
+					}
+					// 立体斜め方向 4 (dx=0, dy=1, dz=-1)
+					if (y == 0 && z == 3) {
+						if (checkDirection(x, y, z, 0, 1, -1, player) == 4) return true;
+					}
+					// 立体斜め方向 5 (dx=1, dy=1, dz=1)
+					if (z == 0 && x == 0 && y == 0) {
+						if (checkDirection(x, y, z, 1, 1, 1, player) == 4) return true;
+					}
+					// 立体斜め方向 6 (dx=-1, dy=1, dz=-1)
+					if (x == 3 && y == 0 && z == 3) {
+						if (checkDirection(x, y, z, -1, 1, -1, player) == 4) return true;
+					}
+					// 立体斜め方向 7 (dx=0, dy=-1, dz=-1)
+					if (y == 3 && z == 3) {
+						if (checkDirection(x, y, z, 0, -1, -1, player) == 4) return true;
+					}
+					// 立体斜め方向 8 (dx=1, dy=-1, dz=-1)
+					if (x == 0 && y == 3 && z == 3) {
+						if (checkDirection(x, y, z, 1, -1, -1, player) == 4) return true;
+					}
+					// 立体斜め方向 9 (dx=-1, dy=-1, dz=1)
+					if (x == 3 && y == 3 && z == 0) {
+						if (checkDirection(x, y, z, -1, -1, 1, player) == 4) return true;
+					}
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
+float crossProduct(float x1, float y1, float x2, float y2, int px, int py) {
+	return (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1);
+}
+
+void ending(int index) {
+	
+	WaitTimer(2000);
+	ClearDrawScreen();
+
+	// プレイヤー１勝利
+	if (index == 1 && mode == 0) {
+		DrawFormatStringToHandle(565, 440, CHandle[3], FHandle[1], "YOU WIN");
+	}
+	// プレイヤー２勝利
+	else if (index == 2 && mode == 0) {
+		DrawFormatStringToHandle(590, 440, CHandle[4], FHandle[1], "YOU WIN");
+	}
+	// プレイヤー勝利
+	else if (index == 1 && mode == 1) {
+		DrawFormatStringToHandle(565, 440, CHandle[3], FHandle[1], "YOU WIN");
+	}
+	// ＣＯＭ勝利
+	else if (index == 2 && mode == 1) {
+		DrawFormatStringToHandle(590, 440, CHandle[4], FHandle[1], "YOU LOSE");
+	}
+	// 引き分け
+	else if (index == 3) {
+		DrawFormatStringToHandle(710, 440, CHandle[4], FHandle[1], "DRAW");
+	}
+	ScreenFlip();
+	WaitTimer(2000);
+
+}
+
+int reset_debug() {
+
+	// レベル表示
+	DrawStringToHandle(200, 150, "レベル：", CHandle[2], FHandle[4]);
+	if(randomFreq == 2) DrawStringToHandle(400, 150, "★", CHandle[2], FHandle[4]);
+	if(randomFreq == 3) DrawStringToHandle(400, 150, "★★", CHandle[2], FHandle[4]);
+	if(randomFreq == 4) DrawStringToHandle(400, 150, "★★★", CHandle[2], FHandle[4]);
+	if(randomFreq == 5) DrawStringToHandle(400, 125, "★★\n★★", CHandle[2], FHandle[4]);
+	if (randomFreq == 6) {
+		DrawStringToHandle(425, 125, "★★", CHandle[2], FHandle[4]);
+		DrawStringToHandle(400, 125, "\n★★★", CHandle[2], FHandle[4]);
+	}
+	if(randomFreq == 1) DrawStringToHandle(400, 125, "★★★\n★★★", CHandle[2], FHandle[4]);
+	
+
+
+	DrawGraph(50, 500, GHandle[0], FALSE);	// リセットボタン描画
+
+	// リセットボタンが押されたらフィールドを初期化する
+	if ((mx > 50 && mx < 90) && (my > 500 && my < 580)) {
+		if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+			initialize();
+			system("cls");	// コンソールを初期化
+			playerFlag = 1;	// 手番をプレイヤーに戻す
+		}
+	}
+
+
+	DrawGraph(50, 950, GHandle[1], FALSE);	// メニューボタン描画
+
+	// メニューボタンが押されたらメニュー画面に戻る
+	if ((mx > 50 && mx < 250) && (my > 950 && my < 1050)) {
+		if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+			return 1;
+		}
+	}
+
+
+	DrawGraph(400, 970, GHandle[2], FALSE);	// ヒントボタン描画
+	
+	// ヒントボタンが押されたらヒントを表示する
+	if ((mx > 400 && mx < 550) && (my > 970 && my < 1050) && hintoFlag == 0) {
+		if ((GetMouseInput() & MOUSE_INPUT_LEFT) != 0) {
+
+			// プレイヤーのビンゴを検出
+			if (checkReach(111, 2) == 5) {
+				hintoFlag = 1;
+				goto HINTODRAW;
+			}
+			// ＣＯＭのビンゴを検出
+			if (checkReach(222, 2) == 5) {
+				hintoFlag = 2;
+				goto HINTODRAW;
+			}
+			// 思考ルーチンで最善手を探索
+			int tmpDepth = depthNow;		// 深さ７で最善手を探すために現在の深さを退避させる
+			depthNum = 0;	// 局面数カウントをリセット
+
+			// ４段目に駒が置かれるということは候補手が１つ減ることになるので、それに合わせて探索を深くする
+			if (cant <= 5) depthNow = MAXDEPTH;
+			if (cant == 6 || cant == 7) depthNow = MAXDEPTH + 1;
+			else if (cant == 8 || cant == 9) depthNow = MAXDEPTH + 2;
+			else if (cant == 10 || cant == 11) depthNow = MAXDEPTH + 3;
+			else if (cant >= 12) depthNow = MAXDEPTH + 5;
+			printf("%d", depthNow);
+			minLevel(-INFINITY, INFINITY, 1);
+			depthNow = tmpDepth;
+			hintoFlag = 3;
+		}
+	}
+
+	HINTODRAW:
+	if (hintoFlag == 1) {
+		DrawFormatStringToHandle(400, 750, CHandle[2], FHandle[4], "PLAYER リーチ\nz : %d\nx : %d\ny : %d", hintoZ, hintoY, hintoX);
+	}
+	if (hintoFlag == 2) {
+		DrawFormatStringToHandle(400,750,CHandle[2],FHandle[4],"COM リーチ\nz : %d\nx : %d\ny : %d",hintoZ, hintoY, hintoX);
+	}
+	if (hintoFlag == 3) {
+		DrawFormatStringToHandle(400, 750, CHandle[2], FHandle[4], "最善手\nz : %d\nx : %d\ny : %d", bestZ + 1, bestY + 1, bestX + 1);
+	}
+	return 0;
+}
+
+
+
+void com_select() {
+
+	int num = 0;	// 評価値
+
+	depthNum = 0;	// 局面数カウントをリセット
+
+	DrawStringToHandle(395, 370, "ＣＯＭ", CHandle[4], FHandle[4]);
+	if (sengo == 2) DrawStringToHandle(420, 450, "先行", CHandle[4], FHandle[4]);
+	else if (sengo == 1) DrawStringToHandle(420, 450, "後攻", CHandle[4], FHandle[4]);
+
+	ScreenFlip();
+
+	// ＣＯＭがすぐに指して画面がちらつくのを防ぐ
+	if (randomFreq != 1) {
+		WaitTimer(450);
+	}
+
+	//ミニマックス法による探索を行う前に特定の条件下における処理を記述する（相手のビンゴを防ぐ etc...）
+
+
+	// [ 1 / (randomFreq * 2) ] の確率でリーチを見逃す　　（難易度調整）
+	if ((GetRand(randomFreq * 2 - 1) + 1) % randomFreq != 0 && randomFreq != 1) {
+
+			// ＣＯＭのビンゴを狙う
+			if (checkReach(222, 0) == 1) {
+				playerFlag = 1;
+				timesCnt++;
+				return;
+			}
+			// プレイヤーのビンゴを阻止する
+			if (checkReach(111, 0) == 1) {
+				playerFlag = 1;
+				timesCnt++;
+				return;
+			}
+	}
+	else {
+		// ＣＯＭのビンゴを狙う
+		if (checkReach(222, 0) == 1) {
+			playerFlag = 1;
+			timesCnt++;
+			return;
+		}
+		// プレイヤーのビンゴを阻止する
+		if (checkReach(111, 0) == 1) {
+			playerFlag = 1;
+			timesCnt++;
+			return;
+		}
+	}
+	
+
+	// [ 1 / randomFreq ] の確率でランダムに打つ、それ以外は思考ルーチンを通す
+	if (GetRand(randomFreq - 1) + 1 == 2) {
+		printf("(random) ");
+		while (1) {
+			int rx = GetRand(3);
+			int ry = GetRand(3);
+			int rz = GetRand(3);
+
+			if (gameF[rz][ry][rx] == 0) {
+				bestX = rx;
+				bestY = ry;
+				bestZ = rz;
+				break;
+			}
+		}
+	}
+	else {
+		num = maxLevel(-INFINITY, INFINITY, 1);
+	}
+
+
+	gameF[bestZ][bestY][bestX] = 222;
+	if (bestZ < 3) gameF[bestZ + 1][bestY][bestX] = 0;
+	timesCnt++;	// 何手目かカウントする
+	playerFlag = 1;
+	printf("評価値 = %3d  %2d手目\n", num, timesCnt);
+}
+
+int maxLevel(int alpha, int beta, int depth) {
+	if (depth >= depthNow) return evaluation_function(5,5,5); // 評価関数の値を返す
+
+	int score_max = (int)(-INFINITY);  // 最大スコア（負の無限大で初期化)
+
+	// 指すことが可能な座標全てに対して探索を行う
+	for (int z = 0; z < 4; z++) {
+		for (int y = 0; y < 4; y++) {
+			for (int x = 0; x < 4; x++) {
+				if (gameF[z][y][x] == 0) {
+					if (++depthNum > DEPTHNUM) {
+						return evaluation_function(x,y,z);		//  あらかじめ決めた局面数に達したら評価関数の値を返す
+					}
+					int score;
+					gameF[z][y][x] = 222;	// ＣＯＭの駒を暫定で置く
+					//if (++timesCnt == 64) return evaluation_function();	// 盤面がすべて埋まったら探索終了
+					if (z < 3) gameF[z + 1][y][x] = 0;	// １段上の座標を選択可能にする
+					score = minLevel(alpha, beta, depth + 1);  // 次は相手のターン
+					gameF[z][y][x] = 0;		// 暫定で置いたＣＯＭの駒を取り除く
+					//timesCnt--;		// カウント（指し手）を１戻す
+					if (z < 3) gameF[z + 1][y][x] = -1;	// １段上の座標を選択不可に戻す
+
+					// β値を超えると枝刈り
+					if (score >= beta) {
+						return score;  
+					}
+					// α値を更新
+					if (score > score_max) {
+						score_max = score;
+						alpha = max(alpha, score_max);  
+
+						if (depth == 1) {
+							// 最善手を記録
+							bestX = x;
+							bestY = y;
+							bestZ = z;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 置ける場所がなかったらの記述をする
+	if (score_max == (int)(-INFINITY)) return evaluation_function(5,5,5); // 評価関数の値を返す
+
+
+	return score_max;
+}
+
+int minLevel(int alpha, int beta, int depth) {
+	if (depth >= depthNow) return evaluation_function(5,5,5); // 評価関数の値を返す
+
+	int score_min = (int)(INFINITY);  // 最大スコア（正の無限大で初期化)
+
+		// 指すことが可能な座標全てに対して探索を行う
+	for (int z = 0; z < 4; z++) {
+		for (int y = 0; y < 4; y++) {
+			for (int x = 0; x < 4; x++) {
+				if (gameF[z][y][x] == 0) {
+					if (++depthNum > DEPTHNUM) {
+						return evaluation_function(x, y, z);		//  あらかじめ決めた局面数に達したら評価関数の値を返す
+					}
+					int score;
+					gameF[z][y][x] = 111;	// プレイヤーの駒を暫定で置く
+					//if (++timesCnt == 64) return evaluation_function();	// 盤面がすべて埋まったら探索終了
+					if (z < 3) gameF[z + 1][y][x] = 0;	// １段上の座標を選択可能にする
+					score = maxLevel(alpha, beta, depth + 1);  // 次は相手のターン
+					gameF[z][y][x] = 0;		// 暫定で置いたプレイヤーの駒を取り除く
+					//timesCnt--;		// カウント（指し手）を１戻す
+					if (z < 3) gameF[z + 1][y][x] = -1;	// １段上の座標を選択不可に戻す
+
+					// α値を超えると枝刈り
+					if (score <= alpha){
+						return score;  
+					}
+					// β値を更新
+					if (score < score_min) {
+						score_min = score;
+						beta = min(beta, score_min); 
+
+						if (depth == 1) {
+							// 最適な手を記録
+							bestX = x;
+							bestY = y;
+							bestZ = z;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 置ける場所がなかったらの記述をする
+	if (score_min == (int)(INFINITY)) return evaluation_function(5,5,5); // 評価関数の値を返す
+
+	return score_min;
+}
+
+int evaluation_function(int x, int y, int z) {
+
+
+	int totalScoreCOM = 0;		// ＣＯＭの盤面評価値
+	int totalScorePLAYER = 0;	// ＣＯＭの盤面評価値
+
+
+	// ＣＯＭのビンゴが生じていた場合は評価値を 999 , 
+	// プレイヤーのビンゴが生じていた場合は評価値を -999 に設定して返す*********
+	{
+		if (checkWin(111) == 1) {	// プレイヤー勝利をチェック
+			totalScoreCOM = -999;
+			return totalScoreCOM;
+		}
+		if (checkWin(222) == 1) {	// ＣＯＭ勝利をチェック
+			totalScoreCOM = 999;
+			return totalScoreCOM;
+		}
+	}
+	// *************************************************************************
+
+
+	// ダブルリーチの有無を検出*************************************************
+	{
+		if (checkReach(111, 1) >= 2) {
+			totalScoreCOM = -999;
+			return totalScoreCOM;
+		}
+		else if (checkReach(222, 1) >= 2) {
+			totalScoreCOM = 999;
+			return totalScoreCOM;
+		}
+	}
+
+
+	// ３段決勝点の有無を検出***************************************************
+	{
+		if (checkReach(111, 1) >= 1 && PreachZ == 2) {
+			int tmpX = PreachX, tmpY = PreachY, tmpZ = PreachZ;	// プレイヤーの３段決勝点の座標を一時的に格納する（次のコードでＣＯＭの３段決勝点の座標に更新されてしまうから）
+
+			// プレイヤーに３段決勝点があって、ＣＯＭに ｘ座標とｙ座標 が同じの２段目決勝点がない
+			if ((checkReach(222, 1) >= 1) && (tmpX != PreachX && tmpY != PreachY)) {
+				totalScoreCOM = -999;
+				return totalScoreCOM;
+			}
+		}
+		else if (checkReach(222, 1) >= 1 && PreachZ == 2) {
+			int tmpX = PreachX, tmpY = PreachY, tmpZ = PreachZ;	// ＣＯＭの３段決勝点の座標を一時的に格納する（次のコードでプレイヤーの３段決勝点の座標に更新されてしまうから）
+
+			// ＣＯＭに３段決勝点があって、プレイヤーに ｘ座標とｙ座標 が同じの２段目決勝点がない
+			if ((checkReach(111, 1) >= 1) && (tmpX != PreachX && tmpY != PreachY)) {
+				totalScoreCOM = 999;
+				return totalScoreCOM;
+			}
+		}
+	}
+	//**************************************************************************
+
+
+	// ＣＯＭが後手の時、ＣＯＭの偶数段段目決勝点を検出したら評価値を 999 に設定する
+	{
+		if (playerFlag == 1 && checkReach(222, 1) >= 1 && (PreachZ == 1 || PreachZ == 3)) {
+			totalScoreCOM = 999;
+			return totalScoreCOM;
+
+		}
+		// PLAYERが後手の時、PLAYERの偶数段段目決勝点を検出したら評価値を 999 に設定する
+		if (playerFlag == 2 && checkReach(111, 1) >= 1 && (PreachZ == 1 || PreachZ == 3)) {
+			totalScoreCOM = -999;
+			return totalScoreCOM;
+
+		}
+	}// ************************************************************************
+
+
+
+	// 最善手の一つ上に相手の決勝点がある場合評価値を -999 に設定する*********** 
+	{
+		if (z < 3) {
+			if (checkReach(111, 1) >= 1 && PreachZ == z + 1) {
+				int tmpX = PreachX, tmpY = PreachY, tmpZ = PreachZ;	// プレイヤーの３段決勝点の座標を一時的に格納する（次のコードでＣＯＭの３段決勝点の座標に更新されてしまうから）
+
+				// プレイヤーに決勝点がある場合、その座標の一つ下の座標の評価を -999 にする
+				if (x == PreachX && y == PreachY) {
+					totalScoreCOM = -999;
+					return totalScoreCOM;
+				}
+			}
+		}
+		if (z < 3) {
+			if (checkReach(222, 1) >= 1 && PreachZ == z + 1) {
+				int tmpX = PreachX, tmpY = PreachY, tmpZ = PreachZ;	// プレイヤーの３段決勝点の座標を一時的に格納する（次のコードでＣＯＭの３段決勝点の座標に更新されてしまうから）
+
+				// プレイヤーに決勝点がある場合、その座標の一つ下の座標の評価を -999 にする
+				if (x == PreachX && y == PreachY) {
+					totalScoreCOM = 999;
+					return totalScoreCOM;
+				}
+			}
+		}
+	}
+	// *************************************************************************
+
+
+	// 盤面の場所に評価値を与えて全てを合計した値を返す*************************
+	{
+		// 盤面の場所に評価値を与えて全てを合計した値を返す
+		// 角７点　１段目　　４段目の角以外４点　　２、３段目の平面角４点　　２、３段目の平面角４点　　２、３段目の中央４マス６点　　２、３段目の外周３点
+		// そこからビンゴが阻止されている列数だけマイナスする
+		for (int z = 0; z < 4; z++) {
+			for (int y = 0; y < 4; y++) {
+				for (int x = 0; x < 4; x++) {
+					// 立体の角
+					if ((z == 0 && y == 0 && x == 0) || (z == 0 && y == 0 && x == 3) || (z == 0 && y == 3 && x == 0) || (z == 0 && y == 3 && x == 3) ||
+						(z == 3 && y == 0 && x == 0) || (z == 3 && y == 0 && x == 3) || (z == 3 && y == 3 && x == 0) || (z == 3 && y == 3 && x == 3)) {
+
+						// ＣＯＭの盤面評価
+						if (gameF[z][y][x] == 222) totalScoreCOM += 7;	// 角１マスで７点加点
+						checkDirectionCollect(x, y, z, &totalScoreCOM);
+						// プレイヤーの盤面評価
+						if (gameF[z][y][x] == 111) totalScorePLAYER += 7;	// 角１マスで７点加点
+						checkDirectionCollect(x, y, z, &totalScorePLAYER);
+
+					}
+					// １段目、４段目の角以外
+					else if (z == 0 || z == 3) {
+						// ＣＯＭの盤面評価
+						if (gameF[z][y][x] == 222) totalScoreCOM += 4;
+						checkDirectionCollect(x, y, z, &totalScoreCOM);
+						// プレイヤーの盤面評価
+						if (gameF[z][y][x] == 111) totalScorePLAYER += 4;
+						checkDirectionCollect(x, y, z, &totalScorePLAYER);
+					}
+					// ２、３段目の平面角
+					else if ((z == 1 && y == 0 && x == 0) || (z == 1 && y == 0 && x == 3) || (z == 1 && y == 3 && x == 0) || (z == 1 && y == 3 && x == 3) ||
+						(z == 2 && y == 0 && x == 0) || (z == 2 && y == 0 && x == 3) || (z == 2 && y == 3 && x == 0) || (z == 2 && y == 3 && x == 3)) {
+						// ＣＯＭの盤面評価
+						if (gameF[z][y][x] == 222) totalScoreCOM += 4;
+						checkDirectionCollect(x, y, z, &totalScoreCOM);
+						// プレイヤーの盤面評価
+						if (gameF[z][y][x] == 111) totalScorePLAYER += 4;
+						checkDirectionCollect(x, y, z, &totalScorePLAYER);
+					}
+					// ２、３段目の中央４マス
+					else if ((z == 1 && y == 1 && x == 1) || (z == 1 && y == 1 && x == 2) || (z == 1 && y == 2 && x == 1) || (z == 1 && y == 2 && x == 2) ||
+						(z == 2 && y == 1 && x == 1) || (z == 2 && y == 1 && x == 2) || (z == 2 && y == 2 && x == 1) || (z == 2 && y == 2 && x == 2)) {
+						// ＣＯＭの盤面評価
+						if (gameF[z][y][x] == 222) totalScoreCOM += 7;
+						checkDirectionCollect(x, y, z, &totalScoreCOM);
+						// プレイヤーの盤面評価
+						if (gameF[z][y][x] == 111) totalScorePLAYER += 7;
+						checkDirectionCollect(x, y, z, &totalScorePLAYER);
+					}
+					// ２、３段目の外周
+					else if (z == 1 || z == 2) {
+						// ＣＯＭの盤面評価
+						if (gameF[z][y][x] == 222) totalScoreCOM += 3;
+						checkDirectionCollect(x, y, z, &totalScoreCOM);
+						// プレイヤーの盤面評価
+						if (gameF[z][y][x] == 111) totalScorePLAYER += 3;
+						checkDirectionCollect(x, y, z, &totalScorePLAYER);
+					}
+				}
+			}
+		}
+	}
+	// *************************************************************************
+
+	// ＣＯＭとプレイヤーの盤面評価の差を返す
+	return totalScoreCOM - totalScorePLAYER;
+}
+
+
+
+
+void checkDirectionCollect(int x, int y, int z, int* totalScore) {
+
+
+	// 平面 *******************************************************************
+	// 横方向 (dx=1, dy=0, dz=0)
+	if (x == 0) {
+		if (checkDirection(x, y, z, 1, 0, 0, 111) > 0) (*totalScore)--;
+	}
+	// 縦方向 (dx=0, dy=1, dz=0)
+	if (y == 0) {
+		if (checkDirection(x, y, z, 0, 1, 0, 111) > 0) (*totalScore)--;
+	}
+	// z軸方向 (dx=0, dy=0, dz=1)
+	if (z == 0) {
+		if (checkDirection(x, y, z, 0, 0, 1, 111) > 0) (*totalScore)--;
+	}
+
+	// 角の時だけ判定する
+	if ((z == 0 && y == 0 && x == 0) || (z == 0 && y == 0 && x == 3) || (z == 0 && y == 3 && x == 0) || (z == 0 && y == 3 && x == 3) ||
+		(z == 3 && y == 0 && x == 0) || (z == 3 && y == 0 && x == 3) || (z == 3 && y == 3 && x == 0) || (z == 3 && y == 3 && x == 3)) {
+		// 斜め方向 1 左下から右上(dx=1, dy=1, dz=0)
+		if (x == 0 && y == 0) {
+			if (checkDirection(x, y, z, 1, 1, 0, 111) > 0) (*totalScore)--;
+		}
+		// 斜め方向 2 左上から右下(dx=1, dy=-1, dz=0)
+		if (x == 0 && y == 3) {
+			if (checkDirection(x, y, z, 1, -1, 0, 111) > 0) (*totalScore)--;
+		}
+	}
+
+	// 角と１段目４段目の外周の時だけ判定する
+		//角の判定
+	if ((z == 0 && y == 0 && x == 0) || (z == 0 && y == 0 && x == 3) || (z == 0 && y == 3 && x == 0) || (z == 0 && y == 3 && x == 3) ||
+		(z == 3 && y == 0 && x == 0) || (z == 3 && y == 0 && x == 3) || (z == 3 && y == 3 && x == 0) || (z == 3 && y == 3 && x == 3) ||
+		// 外周の判定
+		(z == 0 && y == 0 && x == 1) || (z == 0 && y == 0 && x == 2) || (z == 0 && y == 1 && x == 0) || (z == 0 && y == 1 && x == 3) ||
+		(z == 0 && y == 2 && x == 0) || (z == 0 && y == 2 && x == 3) || (z == 0 && y == 3 && x == 1) || (z == 0 && y == 3 && x == 2) ||
+		(z == 3 && y == 0 && x == 1) || (z == 3 && y == 0 && x == 2) || (z == 3 && y == 1 && x == 0) || (z == 3 && y == 1 && x == 3) ||
+		(z == 3 && y == 2 && x == 0) || (z == 3 && y == 2 && x == 3) || (z == 3 && y == 3 && x == 1) || (z == 3 && y == 3 && x == 2)) {
+
+		// 立体斜め*****************************************************************			 
+		// 立体斜め方向 1 (dx=1, dy=0, dz=1)
+		if (x == 0 && z == 0) {
+			if (checkDirection(x, y, z, 1, 0, 1, 111) > 0) (*totalScore)--;
+		}
+		// 立体斜め方向 2 (dx=1, dy=0, dz=-1)
+		if (x == 0 && z == 3) {
+			if (checkDirection(x, y, z, 1, 0, -1, 111) > 0) (*totalScore)--;
+		}
+		// 立体斜め方向 3 (dx=0, dy=1, dz=1)
+		if (y == 0 && z == 0) {
+			if (checkDirection(x, y, z, 0, 1, 1, 111) > 0) (*totalScore)--;
+		}
+		// 立体斜め方向 4 (dx=0, dy=1, dz=-1)
+		if (y == 0 && z == 3) {
+			if (checkDirection(x, y, z, 0, 1, -1, 111) > 0) (*totalScore)--;
+		}
+		// 立体斜め方向 5 (dx=1, dy=1, dz=1)
+		if (z == 0 && x == 0 && y == 0) {
+			if (checkDirection(x, y, z, 1, 1, 1, 111) > 0) (*totalScore)--;
+		}
+		// 立体斜め方向 6 (dx=-1, dy=1, dz=-1)
+		if (x == 3 && y == 0 && z == 3) {
+			if (checkDirection(x, y, z, -1, 1, -1, 111) > 0) (*totalScore)--;
+		}
+		// 立体斜め方向 7 (dx=0, dy=-1, dz=-1)
+		if (y == 3 && z == 3) {
+			if (checkDirection(x, y, z, 0, -1, -1, 111) > 0) (*totalScore)--;
+		}
+		// 立体斜め方向 8 (dx=1, dy=-1, dz=-1)
+		if (x == 0 && y == 3 && z == 3) {
+			if (checkDirection(x, y, z, 1, -1, -1, 111) > 0) (*totalScore)--;
+		}
+	}
+}
+
+int checkReach(int player, int evalution) {
+	int xx = 0, yy = 0, zz = 0;
+	int reachCnt = 0;	// リーチの数をカウント（ダブルリーチを阻止するために使う）
+
+	// ボード全体をスキャン
+	for (int z = 0; z < 4; z++) {
+		for (int y = 0; y < 4; y++) {
+			for (int x = 0; x < 4; x++) {
+				// 各方向に対してチェック
+				
+
+					// 平面 *******************************************************************
+					// 横方向 (dx=1, dy=0, dz=0)
+				if (x == 0) {
+					if (checkDirection(x, y, z, 1, 0, 0, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE1;
+						}
+						// ヒントを表示するための変数に Preach を格納する
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if(gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						// 決勝点の座標が選択可能ならそのラインのビンゴを完成させる
+						for (xx = 0; xx < 4; xx++) {
+							if (gameF[z][y][xx] == 0) gameF[z][y][xx] = player;
+						}
+						// 実際にビンゴが成立しているかを判定
+						// ビンゴを完成させる最後の座標がまだ選択不可能の場合に、ビンゴと誤判定されるのを防ぐ
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE1:
+				// 縦方向 (dx=0, dy=1, dz=0)
+				if (y == 0) {
+					if (checkDirection(x, y, z, 0, 1, 0, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE2;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (yy = 0; yy < 4; yy++) {
+							if (gameF[z][yy][x] == 0) gameF[z][yy][x] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE2:
+				// z軸方向 (dx=0, dy=0, dz=1)
+				if (z == 0) {
+					if (checkDirection(x, y, z, 0, 0, 1, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE3;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (zz = 0; zz < 4; zz++) {
+							if (gameF[zz][y][x] == 0) gameF[zz][y][x] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE3:
+				// 斜め方向 1 左下から右上(dx=1, dy=1, dz=0)
+				if (x == 0 && y == 0) {
+					if (checkDirection(x, y, z, 1, 1, 0, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE4;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (xx = 0, yy = 0; xx < 4 && yy < 4; xx++, yy++) {
+							if (gameF[z][yy][xx] == 0)gameF[z][yy][xx] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE4:
+				// 斜め方向 2 左上から右下(dx=1, dy=-1, dz=0)
+				if (x == 0 && y == 3) {
+					if (checkDirection(x, y, z, 1, -1, 0, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE5;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (xx = 0, yy = 3; xx < 4 && yy >= 0; xx++, yy--) {
+							if (gameF[z][yy][xx] == 0) gameF[z][yy][xx] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+
+				}
+
+			PLACE5:
+				// 立体斜め*****************************************************************			 
+				// 立体斜め方向 1 (dx=1, dy=0, dz=1)
+				if (x == 0 && z == 0) {
+					if (checkDirection(x, y, z, 1, 0, 1, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE6;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (xx = 0, zz = 0; xx < 4 && zz < 4; xx++, zz++) {
+							if (gameF[zz][y][xx] == 0) gameF[zz][y][xx] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE6:
+				// 立体斜め方向 2 (dx=1, dy=0, dz=-1)
+				if (x == 0 && z == 3) {
+					if (checkDirection(x, y, z, 1, 0, -1, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE7;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (xx = 0, zz = 3; xx < 4 && zz >= 0; xx++, zz--) {
+							if (gameF[zz][y][xx] == 0) gameF[zz][y][xx] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE7:
+				// 立体斜め方向 3 (dx=0, dy=1, dz=1)
+				if (y == 0 && z == 0) {
+					if (checkDirection(x, y, z, 0, 1, 1, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE8;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (yy = 0, zz = 0; yy < 4 && zz < 4; yy++, zz++) {
+							if (gameF[zz][yy][x] == 0) gameF[zz][yy][x] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE8:
+				// 立体斜め方向 4 (dx=0, dy=1, dz=-1)
+				if (y == 0 && z == 3) {
+					if (checkDirection(x, y, z, 0, 1, -1, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE9;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (yy = 0, zz = 3; yy < 4 && zz >= 0; yy++, zz--) {
+							if (gameF[zz][yy][x] == 0) gameF[zz][yy][x] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE9:
+				// 立体斜め方向 5 (dx=1, dy=1, dz=1)
+				if (z == 0 && x == 0 && y == 0) {
+					if (checkDirection(x, y, z, 1, 1, 1, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE10;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (xx = 0, yy = 0, zz = 0; xx < 4 && yy < 4 && zz < 4; xx++, yy++, zz++) {
+							if (gameF[zz][yy][xx] == 0) gameF[zz][yy][xx] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE10:
+				// 立体斜め方向 6 (dx=-1, dy=1, dz=-1)
+				if (x == 3 && y == 0 && z == 3) {
+					if (checkDirection(x, y, z, -1, 1, -1, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE11;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (xx = 3, yy = 0, zz = 3; xx >= 0 && yy < 4 && zz >= 0; xx--, yy++, zz--) {
+							if (gameF[zz][yy][xx] == 0) gameF[zz][yy][xx] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE11:
+				// 立体斜め方向 7 (dx=0, dy=-1, dz=-1)
+				if (y == 3 && z == 3) {
+					if (checkDirection(x, y, z, 0, -1, -1, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							goto PLACE12;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (yy = 3, zz = 3; yy >= 0 && zz >= 0; yy--, zz--) {
+							if (gameF[zz][yy][x] == 0) gameF[zz][yy][x] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			PLACE12:
+				// 立体斜め方向 8 (dx=1, dy=-1, dz=-1)
+				if (x == 0 && y == 3 && z == 3) {
+					if (checkDirection(x, y, z, 1, -1, -1, player) == 3 && PreachFlag == 1) {
+						if (evalution == 1) {
+							reachCnt++;
+							break;
+						}
+						if (evalution == 2) {
+							hintoX = PreachX + 1;
+							hintoY = PreachY + 1;
+							hintoZ = PreachZ + 1;
+							return 5;
+						}
+
+						if (player == 111) {
+							if (gameF[PreachZ][PreachY][PreachX] == 0) gameF[PreachZ][PreachY][PreachX] = 222;
+							if (PreachZ < 3) gameF[PreachZ + 1][PreachY][PreachX] = 0;
+							return 1;
+						}
+						for (xx = 0, yy = 3, zz = 3; xx < 4 && yy >= 0 && zz >= 0; xx++, yy--, zz--) {
+							if (gameF[zz][yy][xx] == 0) gameF[zz][yy][xx] = player;
+						}
+						if (checkWin(player) == 1) return 1;
+					}
+				}
+			}
+		}
+	}
+	return reachCnt;
+}

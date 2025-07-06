@@ -1,0 +1,59 @@
+
+
+int maxlevel(int alpha, int beta, int depth, int max_depth) {
+    if (depth >= max_depth) {
+        return 評価関数();  // 評価関数で局面を評価
+
+        // 盤面を評価するときにすでにビンゴが成立しているかを判定して相手のビンゴは -999 , ＣＯＭのビンゴ 999 を評価値にする
+    }
+
+    int score_max = -INF;  // 最大スコア（負の無限大で初期化）
+
+    可能な手を全て生成;
+    
+    foreach (それぞれの手) {
+        int score;
+        手を打つ;
+        score = minlevel(alpha, beta, depth + 1, max_depth);  // 次は相手のターン
+        手を戻す;
+
+        if (score >= beta) {
+            return score;  // β値を超えたので枝刈り
+        }
+
+        if (score > score_max) {
+            score_max = score;
+            alpha = max(alpha, score_max);  // α値を更新
+        }
+    }
+
+    return score_max;
+}
+
+int minlevel(int alpha, int beta, int depth, int max_depth) {
+    if (depth >= max_depth) {
+        return 評価関数();  // 評価関数で局面を評価
+    }
+
+    int score_min = INF;  // 最小スコア（正の無限大で初期化）
+
+    可能な手を全て生成;
+
+    foreach (それぞれの手) {
+        int score;
+        手を打つ;
+        score = maxlevel(alpha, beta, depth + 1, max_depth);  // 次は自分のターン
+        手を戻す;
+
+        if (score <= alpha) {
+            return score;  // α値を超えたので枝刈り
+        }
+
+        if (score < score_min) {
+            score_min = score;
+            beta = min(beta, score_min);  // β値を更新
+        }
+    }
+
+    return score_min;
+}
