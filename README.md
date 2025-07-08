@@ -8,12 +8,23 @@
 - 思考ルーチン（COM）を実装
 - Mini-Max法、αβ法を用いて思考ルーチンを設計
 - 最大探索局面数：１００万局面
-- 星が多いほど強くなる  
   星６以外はMini-Max法を通さずにランダムで手を選択することで難易度を調整する
 - 【ルール】：平面、立体それぞれの縦、横、斜めのいずれかを自分の色でそろえると勝利
 
 ## デモGIF
-![動作デモ](README-resource/Connect4-demo.gif)
+- ホーム画面
+
+  〇星が多いほど強くなります
+  
+![ホーム画面](README-resource/Connect4-home.gif)
+
+- プレイ画面
+
+![プレイ画面](README-resource/Connect4-play.gif)
+
+- エンド画面
+
+![エンド画面](README-resource/Connect4-end.gif)
 
 ## 実行ファイルの位置
 x64/Release/connect4.exe
